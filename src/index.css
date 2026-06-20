@@ -13,3 +13,17 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
+
+/* Max bid column: show full label on wide screens, abbreviate on narrow */
+.maxbid-label-short {
+  display: none;
+}
+
+@media (max-width: 560px) {
+  .maxbid-label-full {
+    display: none;
+  }
+  .maxbid-label-short {
+    display: inline;
+  }
+}

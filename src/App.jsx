@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 
-const ITEMS = [
+const RAW_ITEMS = [
   {v:"yay",cat:"Laptops/MacBooks",name:"Apple MacBook Air 13.3\" (2020)",sub:"i7-1060NG7 · 8GB · 251GB SSD · WiFi · macOS Sequoia · Multiple units",bid:"$1",mkt:{new:"$1,299",used:"$450–$650",ebay:"$500–$620"},notes:"2020 MacBook Air — i7 variant is rare (most shipped i3/i5). macOS Sequoia = still supported. Best consumer resale appeal of any item in this auction. Multiple units.",verdict:"Bid $150–$200/unit. Resell $480–$600 on eBay. Fastest mover in the catalog. Property mgmt staff laptop option.",roi:"2x–3x"},
   {v:"yay",cat:"Laptops/MacBooks",name:"Apple MacBook Pro 13.3\" (2018)",sub:"i7-8559U · 8GB · 251GB SSD · WiFi · macOS Sequoia",bid:"$1",mkt:{new:"$1,799",used:"$400–$600",ebay:"$420–$530"},notes:"2018 MBP 13\" — Touch Bar model likely. 8GB is weak spot. macOS Sequoia support — verify. Butterfly keyboard era: mention in listing.",verdict:"Bid $100–$175. Resell $420–$520. Or use as GCT loaner/demo machine. Check keyboard condition.",roi:"2.5x–4x"},
   {v:"yay",cat:"Desktops & AIOs",name:"Apple iMac 21.5\" (2019)",sub:"iMac19,2 · i7-8700 · 3.2GHz · 8GB · 1TB Fusion · WiFi · Ventura",bid:"$1",mkt:{new:"$1,499",used:"$350–$550",ebay:"$380–$490"},notes:"Late 2019 21.5\" — one of last Intel iMacs. Fusion Drive is weak (HDD+SSD hybrid). Upgrade tip: add $60 SSD and resale jumps significantly.",verdict:"Bid $100–$150. Add $60 SSD = major boost. Resell $500–$650 after upgrade. Ideal for small biz or home office clients.",roi:"3x–4x with upgrade"},
@@ -71,6 +71,35 @@ const ITEMS = [
   {v:"nay",cat:"Misc / Skip",name:"Mixed USB / DisplayPort Cables (bulk)",sub:"15pcs DP-DVI · 30pcs DP-DP · 40pcs USB · 10pcs HDMI",bid:"$1",mkt:{new:"$5–$15/cable",used:"$1–$5",ebay:"$1–$4"},notes:"Cables in bulk. Very low margin per item.",verdict:"Pass. Low value individually. Only take if thrown in free with major lots. No standalone GCT priority.",roi:"N/A — accessories only"},
 ];
 
+function prepFor(cat, name) {
+  const n = (name || "").toLowerCase();
+  // Bulk lots (cables, sleeves, chargers) → $10
+  if (cat === "Power Supplies & Chargers") return 10;
+  if (/sleeve|cables/.test(n)) return 10;
+  switch (cat) {
+    case "Laptops/MacBooks":
+    case "Desktops & AIOs":
+      return 40; // laptops, MacBooks, mini PCs, AIOs, desktops
+    case "Networking":
+    case "Servers":
+      return 0;
+    case "3D Printers":
+      return 25;
+    case "Tablets & iPads":
+      return 20;
+    case "UPS & Power":
+      return 50; // budget for likely battery replacement
+    case "Chromebooks":
+      return 20;
+    case "Printers & Scanners":
+      return 15;
+    default:
+      return 25; // AV, Displays, Misc, everything else
+  }
+}
+
+const ITEMS = RAW_ITEMS.map((it) => ({ ...it, prep: prepFor(it.cat, it.name) }));
+
 const CATS = ["All", ...Array.from(new Set(ITEMS.map(i => i.cat)))];
 const VERDICTS = { yay: "GCT Yay", nay: "Pass", meh: "Conditional" };
 
@@ -79,6 +108,51 @@ const BADGE_STYLES = {
   nay: { bg: "#FCEBEB", color: "#A32D2D", label: "Pass" },
   meh: { bg: "#FAEEDA", color: "#854F0B", label: "Conditional" },
 };
+
+const EBAY_FEE_RATE = 0.13;          // eBay seller fee ~13%
+const EBAY_NET = 1 - EBAY_FEE_RATE;  // 0.87 of sale price after eBay fees
+const ROI_FLOOR = 2;                 // require a 2x minimum return
+const AUCTION_FEE_MULT = 1.2714;     // 1.18 internet premium × 1.0775 sales tax
+const CASH_BID_MULT = 1.0247;        // bump when paying cash (3% buyer's-premium discount)
+
+function parseEbayLow(ebay) {
+  if (!ebay) return 0;
+  const m = String(ebay).replace(/,/g, "").match(/\d+(?:\.\d+)?/);
+  return m ? parseFloat(m[0]) : 0;
+}
+
+function bidMath(item) {
+  const ebayLow = parseEbayLow(item.mkt && item.mkt.ebay);
+  const prep = typeof item.prep === "number" ? item.prep : 25;
+  const ebayFees = ebayLow * EBAY_FEE_RATE;
+  const netAfterCosts = ebayLow * EBAY_NET - prep;
+  const afterRoi = netAfterCosts / ROI_FLOOR;
+  const afterAuctionFees = afterRoi / AUCTION_FEE_MULT;
+  const maxBid = Math.max(1, Math.floor(afterAuctionFees));
+  const trueCostAtMax = maxBid * AUCTION_FEE_MULT;
+  const returnAtMax = netAfterCosts;
+  const roiAtMax = trueCostAtMax > 0 ? returnAtMax / trueCostAtMax : 0;
+  return { ebayLow, prep, ebayFees, netAfterCosts, afterRoi, afterAuctionFees, maxBid, trueCostAtMax, returnAtMax, roiAtMax };
+}
+
+function calcMaxBid(item) {
+  return bidMath(item).maxBid;
+}
+
+function money(n) {
+  if (!isFinite(n)) return "0";
+  const v = Math.round(n * 100) / 100;
+  return Number.isInteger(v) ? String(v) : v.toFixed(2);
+}
+
+function BidRow({ label, value, strong }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+      <span style={{ color: strong ? "#333" : "#999" }}>{label}</span>
+      <span style={{ fontWeight: strong ? 700 : 500, color: strong ? "#c07700" : "#333" }}>{value}</span>
+    </div>
+  );
+}
 
 function Badge({ v }) {
   const s = BADGE_STYLES[v];
@@ -106,9 +180,10 @@ export default function App() {
   const [cat, setCat] = useState("All");
   const [search, setSearch] = useState("");
   const [expanded, setExpanded] = useState(null);
+  const [sort, setSort] = useState("none");
 
   const filtered = useMemo(() => {
-    return ITEMS.filter(item => {
+    const result = ITEMS.filter(item => {
       if (filter !== "all" && item.v !== filter) return false;
       if (cat !== "All" && item.cat !== cat) return false;
       if (search) {
@@ -117,7 +192,14 @@ export default function App() {
       }
       return true;
     });
-  }, [filter, cat, search]);
+    if (sort === "asc" || sort === "desc") {
+      return [...result].sort((a, b) => {
+        const diff = calcMaxBid(a) - calcMaxBid(b);
+        return sort === "asc" ? diff : -diff;
+      });
+    }
+    return result;
+  }, [filter, cat, search, sort]);
 
   const counts = useMemo(() => ({
     all: ITEMS.length,
@@ -159,6 +241,14 @@ export default function App() {
         }}>
           {CATS.map(c => <option key={c}>{c}</option>)}
         </select>
+        <select value={sort} onChange={e => setSort(e.target.value)} style={{
+          padding: "6px 10px", borderRadius: 20, border: "1px solid #ddd",
+          background: "#fff", fontSize: 13, color: "#555", cursor: "pointer"
+        }}>
+          <option value="none">Sort: Original order</option>
+          <option value="desc">Max bid ↓ (highest)</option>
+          <option value="asc">Max bid ↑ (lowest)</option>
+        </select>
         <input
           type="text" placeholder="Search items..." value={search} onChange={e => setSearch(e.target.value)}
           style={{ padding: "6px 12px", borderRadius: 20, border: "1px solid #ddd", fontSize: 13, flex: "1 1 160px", minWidth: 120, outline: "none" }}
@@ -174,12 +264,13 @@ export default function App() {
           <div style={{ padding: 32, textAlign: "center", color: "#aaa", fontSize: 14 }}>No items match your filters.</div>
         ) : filtered.map((item, idx) => {
           const isOpen = expanded === idx;
+          const bm = bidMath(item);
           return (
             <div key={idx} style={{ borderBottom: idx < filtered.length - 1 ? "1px solid #f0f0f0" : "none" }}>
               <div
                 onClick={() => toggleExpand(idx)}
                 style={{
-                  display: "grid", gridTemplateColumns: "1fr auto auto auto",
+                  display: "grid", gridTemplateColumns: "1fr auto auto auto auto",
                   gap: 12, alignItems: "center", padding: "12px 16px",
                   cursor: "pointer", background: isOpen ? "#fafafa" : "#fff",
                   transition: "background 0.1s"
@@ -194,6 +285,13 @@ export default function App() {
                   <div style={{ fontSize: 11, color: "#aaa" }}>eBay used</div>
                   <div style={{ fontSize: 13, fontWeight: 500, color: "#1a1a1a" }}>{item.mkt.ebay}</div>
                 </div>
+                <div style={{ textAlign: "right", minWidth: 70 }}>
+                  <div style={{ fontSize: 11, color: "#aaa" }}>
+                    <span className="maxbid-label-full">Max bid</span>
+                    <span className="maxbid-label-short">Max</span>
+                  </div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#c07700" }}>${bm.maxBid}</div>
+                </div>
                 <div style={{ textAlign: "right", minWidth: 80 }}>
                   <div style={{ fontSize: 11, color: "#aaa" }}>Est. ROI</div>
                   <div style={{ fontSize: 13, fontWeight: 500, color: item.v === "yay" ? "#1D9E75" : item.v === "nay" ? "#c0392b" : "#c07700" }}>{item.roi}</div>
@@ -205,7 +303,7 @@ export default function App() {
 
               {isOpen && (
                 <div style={{ padding: "0 16px 16px 16px", background: "#fafafa", borderTop: "1px solid #f0f0f0" }}>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, marginBottom: 14 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 16, marginBottom: 14 }}>
                     <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "10px 14px" }}>
                       <div style={{ fontSize: 11, color: "#aaa", marginBottom: 6 }}>Market value</div>
                       <div style={{ fontSize: 12, lineHeight: 1.8 }}>
@@ -228,6 +326,33 @@ export default function App() {
                       <div style={{ marginTop: 8 }}>
                         <span style={{ fontSize: 11, color: "#aaa" }}>Category: </span>
                         <span style={{ fontSize: 11, background: "#eee", padding: "2px 8px", borderRadius: 10, color: "#555" }}>{item.cat}</span>
+                      </div>
+                    </div>
+                    <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "10px 14px" }}>
+                      <div style={{ fontSize: 11, color: "#aaa", marginBottom: 6 }}>Bid calculator</div>
+                      <div style={{ fontSize: 12, lineHeight: 1.7, fontVariantNumeric: "tabular-nums" }}>
+                        {bm.ebayLow > 0 ? (
+                          <>
+                            <BidRow label="eBay low" value={`$${money(bm.ebayLow)}`} />
+                            <BidRow label="− eBay fees (13%)" value={`−$${money(bm.ebayFees)}`} />
+                            <BidRow label="− Prep cost" value={`−$${money(bm.prep)}`} />
+                            <BidRow label="= Net after costs" value={`$${money(bm.netAfterCosts)}`} />
+                            <BidRow label="÷ 2x ROI target" value={`$${money(bm.afterRoi)}`} />
+                            <BidRow label="÷ Auction fees" value={`$${money(bm.afterAuctionFees)}`} />
+                            <div style={{ borderTop: "1px solid #e5e5e5", margin: "6px 0" }} />
+                            <BidRow label="Max bid" value={`$${bm.maxBid}`} strong />
+                            <BidRow label="True cost at max" value={`$${money(bm.trueCostAtMax)}`} />
+                            <BidRow label="Return at max" value={`$${money(bm.returnAtMax)}`} />
+                            <BidRow label="ROI at max bid" value={`${bm.roiAtMax.toFixed(2)}x`} />
+                          </>
+                        ) : (
+                          <div style={{ color: "#888" }}>
+                            No parseable eBay range (“{item.mkt.ebay}”). Max bid falls to the <strong style={{ color: "#c07700" }}>$1</strong> floor — value depends on contents; inspect before bidding.
+                          </div>
+                        )}
+                        <div style={{ marginTop: 8, fontSize: 11, color: "#aaa" }}>
+                          Paying cash? Max bid × {CASH_BID_MULT} = <strong style={{ color: "#c07700" }}>${Math.max(1, Math.floor(bm.maxBid * CASH_BID_MULT))}</strong> (3% cash discount).
+                        </div>
                       </div>
                     </div>
                   </div>
