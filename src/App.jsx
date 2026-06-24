@@ -111,7 +111,10 @@ const BADGE_STYLES = {
 
 const EBAY_FEE_RATE = 0.13;          // eBay seller fee ~13%
 const EBAY_NET = 1 - EBAY_FEE_RATE;  // 0.87 of sale price after eBay fees
-const ROI_FLOOR = 2;                 // require a 2x minimum return
+const ROI_FLOOR = 2;                 // default ROI target (2x return) on open
+const ROI_MIN = 1;                   // slider lower bound (1x = break-even)
+const ROI_MAX = 10;                  // slider upper bound (10x)
+const ROI_STEP = 0.5;                // slider granularity
 const AUCTION_FEE_MULT = 1.2714;     // 1.18 internet premium × 1.0775 sales tax
 const CASH_BID_MULT = 1.0247;        // bump when paying cash (3% buyer's-premium discount)
 
@@ -121,12 +124,12 @@ function parseEbayLow(ebay) {
   return m ? parseFloat(m[0]) : 0;
 }
 
-function bidMath(item) {
+function bidMath(item, roi = ROI_FLOOR) {
   const ebayLow = parseEbayLow(item.mkt && item.mkt.ebay);
   const prep = typeof item.prep === "number" ? item.prep : 25;
   const ebayFees = ebayLow * EBAY_FEE_RATE;
   const netAfterCosts = ebayLow * EBAY_NET - prep;
-  const afterRoi = netAfterCosts / ROI_FLOOR;
+  const afterRoi = netAfterCosts / roi;
   const afterAuctionFees = afterRoi / AUCTION_FEE_MULT;
   const maxBid = Math.max(1, Math.floor(afterAuctionFees));
   const trueCostAtMax = maxBid * AUCTION_FEE_MULT;
@@ -135,8 +138,8 @@ function bidMath(item) {
   return { ebayLow, prep, ebayFees, netAfterCosts, afterRoi, afterAuctionFees, maxBid, trueCostAtMax, returnAtMax, roiAtMax };
 }
 
-function calcMaxBid(item) {
-  return bidMath(item).maxBid;
+function calcMaxBid(item, roi) {
+  return bidMath(item, roi).maxBid;
 }
 
 function money(n) {
@@ -181,6 +184,7 @@ export default function App() {
   const [search, setSearch] = useState("");
   const [expanded, setExpanded] = useState(null);
   const [sort, setSort] = useState("none");
+  const [roi, setRoi] = useState(ROI_FLOOR);
 
   const filtered = useMemo(() => {
     const result = ITEMS.filter(item => {
@@ -194,12 +198,12 @@ export default function App() {
     });
     if (sort === "asc" || sort === "desc") {
       return [...result].sort((a, b) => {
-        const diff = calcMaxBid(a) - calcMaxBid(b);
+        const diff = calcMaxBid(a, roi) - calcMaxBid(b, roi);
         return sort === "asc" ? diff : -diff;
       });
     }
     return result;
-  }, [filter, cat, search, sort]);
+  }, [filter, cat, search, sort, roi]);
 
   const counts = useMemo(() => ({
     all: ITEMS.length,
@@ -255,6 +259,31 @@ export default function App() {
         />
       </div>
 
+      <div style={{
+        display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap",
+        border: "1px solid #eee", background: "#faf9f6", borderRadius: 12,
+        padding: "12px 16px", marginBottom: 14
+      }}>
+        <div style={{ display: "flex", flexDirection: "column", minWidth: 96 }}>
+          <span style={{ fontSize: 11, color: "#888", letterSpacing: "0.06em", textTransform: "uppercase" }}>ROI target</span>
+          <span style={{ fontSize: 24, fontWeight: 600, color: "#c07700", lineHeight: 1.1 }}>{roi.toFixed(1)}x</span>
+        </div>
+        <div style={{ flex: "1 1 240px", display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontSize: 11, color: "#bbb" }}>{ROI_MIN.toFixed(1)}x</span>
+          <input
+            type="range"
+            min={ROI_MIN} max={ROI_MAX} step={ROI_STEP} value={roi}
+            onChange={e => setRoi(parseFloat(e.target.value))}
+            aria-label="ROI target multiplier"
+            style={{ flex: 1, accentColor: "#c07700", cursor: "pointer" }}
+          />
+          <span style={{ fontSize: 11, color: "#bbb" }}>{ROI_MAX.toFixed(1)}x</span>
+        </div>
+        <div style={{ fontSize: 11, color: "#aaa", flex: "1 1 100%", maxWidth: 360 }}>
+          Drag to set your required return. Higher ROI → lower max bids. Every bid calculation updates live.
+        </div>
+      </div>
+
       <div style={{ fontSize: 12, color: "#999", marginBottom: 10 }}>
         Showing {filtered.length} of {ITEMS.length} items · Click any row to expand details
       </div>
@@ -264,7 +293,7 @@ export default function App() {
           <div style={{ padding: 32, textAlign: "center", color: "#aaa", fontSize: 14 }}>No items match your filters.</div>
         ) : filtered.map((item, idx) => {
           const isOpen = expanded === idx;
-          const bm = bidMath(item);
+          const bm = bidMath(item, roi);
           return (
             <div key={idx} style={{ borderBottom: idx < filtered.length - 1 ? "1px solid #f0f0f0" : "none" }}>
               <div
@@ -337,7 +366,7 @@ export default function App() {
                             <BidRow label="− eBay fees (13%)" value={`−$${money(bm.ebayFees)}`} />
                             <BidRow label="− Prep cost" value={`−$${money(bm.prep)}`} />
                             <BidRow label="= Net after costs" value={`$${money(bm.netAfterCosts)}`} />
-                            <BidRow label="÷ 2x ROI target" value={`$${money(bm.afterRoi)}`} />
+                            <BidRow label={`÷ ${roi.toFixed(1)}x ROI target`} value={`$${money(bm.afterRoi)}`} />
                             <BidRow label="÷ Auction fees" value={`$${money(bm.afterAuctionFees)}`} />
                             <div style={{ borderTop: "1px solid #e5e5e5", margin: "6px 0" }} />
                             <BidRow label="Max bid" value={`$${bm.maxBid}`} strong />
