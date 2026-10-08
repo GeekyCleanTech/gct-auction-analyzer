@@ -27,3 +27,21 @@ body {
     display: inline;
   }
 }
+
+/* Lot rows: drop the eBay and Est. ROI columns on phones so the thumbnail fits */
+@media (max-width: 560px) {
+  .lot-row {
+    grid-template-columns: 44px 1fr auto auto !important;
+    gap: 10px !important;
+    padding: 10px 12px !important;
+  }
+  .lot-row img,
+  .lot-row > div:first-child {
+    width: 44px !important;
+    height: 44px !important;
+  }
+  .col-ebay,
+  .col-roi {
+    display: none;
+  }
+}

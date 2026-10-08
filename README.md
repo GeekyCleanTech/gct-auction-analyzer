@@ -1,6 +1,8 @@
 # GCT Auction Buy Analysis
 
-Interactive dashboard for analyzing SD Surplus Auction lots — filter by verdict (GCT Yay / Conditional / Pass), browse by category, search, and expand rows for market value, notes, and ROI verdicts.
+Interactive dashboard for analyzing SD Surplus Auction lots — every lot in the catalog with its photo, lot number, current Proxibid bid, and a computed max bid. Filter by verdict (GCT Yay / Conditional / Pass), browse by category, search by name or lot #, and expand rows for market value, notes, ROI verdicts, and a link to the lot on Proxibid.
+
+Current catalog: **Proxibid auction 299465 — SD Surplus Auctions, Oct 8th Biotech / Laboratory / Electronics / Industrial** (506 lots, 21 pages).
 
 Built with **React 18 + Vite**. Deploys to **Cloudflare Pages**.
 
@@ -9,6 +11,7 @@ Built with **React 18 + Vite**. Deploys to **Cloudflare Pages**.
 ```bash
 npm install
 npm run dev
+npm test           # Vitest unit tests for the bid math (src/bidMath.test.js)
 ```
 
 Open the printed local URL (default <http://localhost:5173>).
@@ -50,17 +53,17 @@ sold-price range. The lower (conservative) bound of that range is used to protec
 ### Formula
 
 ```text
-maxBid = floor( (ebayLow × 0.87 − prepCost) ÷ 2 ÷ 1.2714 )      // floored to a whole dollar, minimum $1
+maxBid = floor( (ebayLow × 0.87 − prepCost) ÷ ROI ÷ 1.2714 )    // ROI from the slider (default 2x); "No bid" if < $1
 ```
 
 | Term                   | Meaning                                                                                                                                          |
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `ebayLow`              | Lower bound of the eBay sold range (e.g. `"$180–$230"` → `180`). Commas are stripped; if no number is found the max bid falls to the `$1` floor. |
+| `ebayLow`              | Lower bound of the eBay sold range (e.g. `"$180–$230"` → `180`). Commas are stripped; if no number is found the lot shows **No bid** (no comps). |
 | `× 0.87`               | Strips eBay's **~13% seller fee**, leaving net proceeds.                                                                                         |
 | `− prepCost`           | Subtracts estimated **prep cost** per item (table below).                                                                                        |
 | `÷ 2`                  | The **2× ROI floor** — the minimum acceptable return.                                                                                            |
 | `÷ 1.2714`             | Backs out the **auction fee multiplier** so the bid is what you can pay _on the hammer_.                                                         |
-| `floor(...)`, min `$1` | Rounded **down** to whole dollars; never returns less than `$1`.                                                                                 |
+| `floor(...)`           | Rounded **down** to whole dollars. Below `$1` (Proxibid's minimum bid) the lot shows **No bid** — see below.                                     |
 
 ### Auction fee multiplier (1.2714)
 
@@ -125,12 +128,42 @@ cashMaxBid = maxBid × 1.0247
 
 For the OptiPlex 7060 above: `$45 × 1.0247 ≈ $46`.
 
+### No bid
+
+The calculator never pads a losing lot up to `$1`. A lot shows **No bid** when:
+
+| Reason         | Condition                                                                 |
+| -------------- | ------------------------------------------------------------------------- |
+| No comps       | `mkt.ebay` has no parseable price (or is `$0`).                           |
+| Loses money    | `ebayLow × 0.87 − prepCost ≤ 0` — fees and prep eat the whole sale.       |
+| Below target   | Profitable, but the max bid at the chosen ROI is under `$1`. Lowering the ROI slider can bring these back. |
+
+### ROI slider
+
+The ROI divisor is adjustable from **1.0x (break-even) to 10x** in 0.5x steps. It defaults to **2.0x**
+and the last value you used is saved in the browser (`localStorage`), so it survives a refresh.
+
+## Updating the catalog
+
+`src/data/catalog.js` is generated — don't hand-edit it. It holds:
+
+- `LOTS` — one row per lot: `[lot, lotInformationId, currentHighBid, productKey, hasImage]`
+- `PRODUCTS` — one analysis record per unique lot title (`v`, `cat`, `name`, `sub`, `mkt`, `notes`, `verdict`, `roi`)
+
+Images are hot-linked from Proxibid's CDN by lot number (`Small/` thumbnails in rows, `FullDetail/` in the expanded panel).
+Regenerate with `scripts/build-catalog.py` from a fresh catalog scrape plus analysis JSON (usage in the script header).
+Current bids are a snapshot at scrape time — always confirm on Proxibid.
+
 ## Project structure
 
 ```text
 index.html          # Vite entry HTML
 src/main.jsx         # React entry point
 src/App.jsx          # The auction analysis dashboard component
+src/bidMath.js       # Pure max-bid math (ROI, fees, prep, No bid rules)
+src/bidMath.test.js  # Vitest coverage for bidMath
+src/data/catalog.js  # GENERATED lot + product data for the current auction
+scripts/build-catalog.py  # Generator for src/data/catalog.js
 src/index.css        # Base style reset
 public/_redirects    # SPA fallback for Cloudflare Pages
 vite.config.js       # Vite + React plugin config
