@@ -2,10 +2,10 @@
 
 export const EBAY_FEE_RATE = 0.13;          // eBay seller fee ~13%
 export const EBAY_NET = 1 - EBAY_FEE_RATE;  // 0.87 of sale price after eBay fees
-export const ROI_DEFAULT = 2;               // default ROI target (2x return) on first open
+export const ROI_DEFAULT = 1;               // default ROI target on first open (1x = break-even)
 export const ROI_MIN = 1;                   // slider lower bound (1x = break-even)
-export const ROI_MAX = 10;                  // slider upper bound (10x)
-export const ROI_STEP = 0.5;                // slider granularity
+export const ROI_MAX = 5;                   // slider upper bound (5x)
+export const ROI_STEP = 0.25;               // slider granularity
 export const AUCTION_FEE_MULT = 1.2714;     // 1.18 internet premium × 1.0775 sales tax
 export const CASH_BID_MULT = 1.0247;        // bump when paying cash (3% buyer's-premium discount)
 export const MIN_BID = 1;                   // Proxibid's lowest possible bid
@@ -47,6 +47,11 @@ export function prepFor(cat, name) {
     default:
       return DEFAULT_PREP; // AV, displays, lab, industrial, everything else
   }
+}
+
+// "1.0x", "1.25x", "2.5x" — one decimal unless the quarter step needs two.
+export function formatRoi(roi) {
+  return `${roi.toFixed(Number.isInteger(roi * 2) ? 1 : 2)}x`;
 }
 
 export function clampRoi(value) {

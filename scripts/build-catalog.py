@@ -3,7 +3,8 @@
 
 Usage: python3 scripts/build-catalog.py <lots.txt> <products.json> <analysis*.json>... <img-status.txt>
 
-lots.txt      LOT|TITLE|CURRENT_BID|LOT_INFORMATION_ID  (one line per lot, catalog order)
+lots.txt      LOT|TITLE|PRICE|LOT_INFORMATION_ID[|STATUS]  (one line per lot, catalog order)
+              PRICE = current high bid, or final hammer price once closed; STATUS = sold|passed|open
 products.json [{key, title}, ...]  (unique titles → product key)
 analysis*.json {key: {v, cat, name, sub, mkt, notes, verdict, roi}}
 img-status.txt "<lot> <http status>" for the FullDetail image of each lot
@@ -31,8 +32,8 @@ for p in products:
 
 rows = []
 for line in open(lots_path):
-    lot, title, bid, lot_id = line.rstrip("\n").split("|")
-    rows.append([lot, int(lot_id), float(bid), key_by_title[title], 1 if has_img.get(lot) else 0])
+    lot, title, price, lot_id, *status = line.rstrip("\n").split("|")
+    rows.append([lot, int(lot_id), float(price), key_by_title[title], 1 if has_img.get(lot) else 0, status[0] if status else "open"])
 
 auction = {
     "id": 299465,
@@ -41,8 +42,10 @@ auction = {
     "title": "Oct 8th Biotech, Laboratory, Electronics & Industrial",
     "dateLabel": "October 8",
     "pages": 21,
+    "closed": True,
+    "statusLabel": "Closed Oct 8 · final results",
     "url": "https://www.proxibid.com/SD-Surplus-Auctions/Oct8th-Biotech-Laboratory-Electronics-Industrial/event-catalog/299465",
-    "snapshotLabel": "Oct 8, 2026",
+    "snapshotLabel": "final results, captured Oct 8, 2026 6:45 PM PT",
 }
 
 with open("src/data/catalog.js", "w") as f:
@@ -53,7 +56,7 @@ with open("src/data/catalog.js", "w") as f:
     for k, v in out_products.items():
         f.write(f"  {k}: {json.dumps(v, ensure_ascii=False)},\n")
     f.write("};\n\n")
-    f.write("// [lot, lotInformationId, currentHighBid, productKey, hasImage]\n")
+    f.write("// [lot, lotInformationId, price (final hammer when closed), productKey, hasImage, status]\n")
     f.write("export const LOTS = [\n")
     for r in rows:
         f.write("  " + json.dumps(r, ensure_ascii=False) + ",\n")

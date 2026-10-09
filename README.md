@@ -53,7 +53,7 @@ sold-price range. The lower (conservative) bound of that range is used to protec
 ### Formula
 
 ```text
-maxBid = floor( (ebayLow × 0.87 − prepCost) ÷ ROI ÷ 1.2714 )    // ROI from the slider (default 2x); "No bid" if < $1
+maxBid = floor( (ebayLow × 0.87 − prepCost) ÷ ROI ÷ 1.2714 )    // ROI from the slider (default 1x); "No bid" if < $1
 ```
 
 | Term                   | Meaning                                                                                                                                          |
@@ -140,8 +140,10 @@ The calculator never pads a losing lot up to `$1`. A lot shows **No bid** when:
 
 ### ROI slider
 
-The ROI divisor is adjustable from **1.0x (break-even) to 10x** in 0.5x steps. It defaults to **2.0x**
-and the last value you used is saved in the browser (`localStorage`), so it survives a refresh.
+The ROI divisor is adjustable from **1.0x (break-even) to 5.0x** in **0.25x** steps. It defaults to **1.0x**
+and the last value you used is saved in the browser (`localStorage` key `gct-auction-analyzer:roi:v2`), so it
+survives a refresh. Note that 1.0x is break-even: a lot won at exactly its 1.0x max bid returns $0 after fees and prep,
+so drag up before bidding for profit.
 
 ## Updating the catalog
 
@@ -152,7 +154,9 @@ and the last value you used is saved in the browser (`localStorage`), so it surv
 
 Images are hot-linked from Proxibid's CDN by lot number (`Small/` thumbnails in rows, `FullDetail/` in the expanded panel).
 Regenerate with `scripts/build-catalog.py` from a fresh catalog scrape plus analysis JSON (usage in the script header).
-Current bids are a snapshot at scrape time — always confirm on Proxibid.
+Each lot carries a `status` (`open`, `sold`, `passed`). While the auction is open, `price` is the current high bid
+snapshot; once it closes, re-scrape and `price` becomes the final hammer price. Closed catalogs show
+**Sold $X ✓/▲** per row (at/below vs. above your max) and a **Winnable at X** count.
 
 ## Project structure
 

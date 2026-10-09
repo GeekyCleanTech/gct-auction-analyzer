@@ -1,12 +1,12 @@
 import { useState, useMemo, useEffect } from "react";
 import { AUCTION, PRODUCTS, LOTS } from "./data/catalog.js";
 import {
-  bidMath, cashMaxBid, clampRoi, prepFor, NO_BID,
-  ROI_DEFAULT, ROI_MIN, ROI_MAX, ROI_STEP, CASH_BID_MULT,
+  bidMath, cashMaxBid, clampRoi, formatRoi, prepFor, NO_BID,
+  ROI_DEFAULT, ROI_MIN, ROI_MAX, ROI_STEP, CASH_BID_MULT, AUCTION_FEE_MULT,
 } from "./bidMath.js";
 
 const IMG_BASE = `https://images.proxibid.com/AuctionImages/${AUCTION.sellerId}/${AUCTION.id}`;
-const ROI_STORAGE_KEY = "gct-auction-analyzer:roi";
+const ROI_STORAGE_KEY = "gct-auction-analyzer:roi:v2"; // v2: 1x–5x slider, 1x default
 
 function lotSlug(title) {
   return title.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
@@ -14,11 +14,11 @@ function lotSlug(title) {
 
 // One row per lot. Lots sharing a title share one PRODUCTS analysis record.
 const ITEMS = LOTS
-  .map(([lot, id, currentBid, key, hasImg]) => {
+  .map(([lot, id, price, key, hasImg, status]) => {
     const p = PRODUCTS[key];
     return {
       ...p,
-      id, lot, currentBid,
+      id, lot, price, sold: status === "sold",
       prep: prepFor(p.cat, p.name),
       url: `https://www.proxibid.com/${lotSlug(p.title)}/lotInformation/${id}`,
       thumb: hasImg ? `${IMG_BASE}/Small/${lot}-1.jpg` : null,
@@ -138,6 +138,11 @@ export default function App() {
   }), []);
 
   const biddable = useMemo(() => ITEMS.filter(i => !bidMath(i, roi).noBid).length, [roi]);
+  // Lots that hammered at or below your max bid — ones you could have won at this ROI.
+  const winnable = useMemo(() => ITEMS.filter(i => {
+    const bm = bidMath(i, roi);
+    return i.sold && !bm.noBid && i.price <= bm.maxBid;
+  }).length, [roi]);
 
   const toggleExpand = (id) => setExpandedId(expandedId === id ? null : id);
 
@@ -148,7 +153,7 @@ export default function App() {
         <div style={{ fontSize: 11, fontWeight: 500, color: "#888", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>{AUCTION.seller} · {AUCTION.dateLabel}</div>
         <h1 style={{ fontSize: 26, fontWeight: 600, margin: 0, lineHeight: 1.2 }}>GCT Auction Buy Analysis</h1>
         <p style={{ fontSize: 13, color: "#666", marginTop: 6 }}>
-          {AUCTION.title} · {ITEMS.length} lots · {AUCTION.pages}-page catalog ·{" "}
+          {AUCTION.title} · {ITEMS.length} lots · {AUCTION.statusLabel} ·{" "}
           <a href={AUCTION.url} target="_blank" rel="noreferrer" style={{ color: "#c07700" }}>Open on Proxibid</a>
         </p>
       </div>
@@ -158,7 +163,8 @@ export default function App() {
         <StatCard label="GCT Yay picks" value={counts.yay} sub="High priority buys" />
         <StatCard label="Conditional" value={counts.meh} sub="Depends on condition/price" />
         <StatCard label="Pass / Skip" value={counts.nay} sub="Not worth GCT time" />
-        <StatCard label={`Biddable at ${roi.toFixed(1)}x`} value={biddable} sub="Lots with a real max bid" />
+        <StatCard label={`Biddable at ${formatRoi(roi)}`} value={biddable} sub="Lots with a real max bid" />
+        <StatCard label={`Winnable at ${formatRoi(roi)}`} value={winnable} sub="Sold at or below your max" />
       </div>
 
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14, alignItems: "center" }}>
@@ -196,10 +202,10 @@ export default function App() {
       }}>
         <div style={{ display: "flex", flexDirection: "column", minWidth: 96 }}>
           <span style={{ fontSize: 11, color: "#888", letterSpacing: "0.06em", textTransform: "uppercase" }}>ROI target</span>
-          <span style={{ fontSize: 24, fontWeight: 600, color: "#c07700", lineHeight: 1.1 }}>{roi.toFixed(1)}x</span>
+          <span style={{ fontSize: 24, fontWeight: 600, color: "#c07700", lineHeight: 1.1 }}>{formatRoi(roi)}</span>
         </div>
         <div style={{ flex: "1 1 240px", display: "flex", alignItems: "center", gap: 10 }}>
-          <span style={{ fontSize: 11, color: "#bbb" }}>{ROI_MIN.toFixed(1)}x</span>
+          <span style={{ fontSize: 11, color: "#bbb" }}>{formatRoi(ROI_MIN)}</span>
           <input
             type="range"
             min={ROI_MIN} max={ROI_MAX} step={ROI_STEP} value={roi}
@@ -207,12 +213,12 @@ export default function App() {
             aria-label="ROI target multiplier"
             style={{ flex: 1, accentColor: "#c07700", cursor: "pointer" }}
           />
-          <span style={{ fontSize: 11, color: "#bbb" }}>{ROI_MAX.toFixed(1)}x</span>
+          <span style={{ fontSize: 11, color: "#bbb" }}>{formatRoi(ROI_MAX)}</span>
         </div>
         <div style={{ fontSize: 11, color: "#aaa", flex: "1 1 100%", maxWidth: 420 }}>
           Drag to set your required return. Higher ROI → lower max bids. Your setting is remembered on this device.
           {roi !== ROI_DEFAULT && (
-            <> <button onClick={() => setRoi(ROI_DEFAULT)} style={{ border: "none", background: "none", color: "#c07700", cursor: "pointer", fontSize: 11, padding: 0, textDecoration: "underline" }}>Reset to {ROI_DEFAULT.toFixed(1)}x</button></>
+            <> <button onClick={() => setRoi(ROI_DEFAULT)} style={{ border: "none", background: "none", color: "#c07700", cursor: "pointer", fontSize: 11, padding: 0, textDecoration: "underline" }}>Reset to {formatRoi(ROI_DEFAULT)}</button></>
           )}
         </div>
       </div>
@@ -227,7 +233,8 @@ export default function App() {
         ) : filtered.map((item, idx) => {
           const isOpen = expandedId === item.id;
           const bm = bidMath(item, roi);
-          const overMax = !bm.noBid && item.currentBid > bm.maxBid;
+          const overMax = item.sold && !bm.noBid && item.price > bm.maxBid;
+          const won = item.sold && !bm.noBid && item.price <= bm.maxBid;
           return (
             <div key={item.id} style={{ borderBottom: idx < filtered.length - 1 ? "1px solid #f0f0f0" : "none" }}>
               <div
@@ -262,8 +269,8 @@ export default function App() {
                   ) : (
                     <div style={{ fontSize: 13, fontWeight: 700, color: "#c07700" }}>${bm.maxBid.toLocaleString()}</div>
                   )}
-                  <div style={{ fontSize: 11, color: overMax ? "#c0392b" : "#aaa", marginTop: 1 }} title="Current high bid on Proxibid (snapshot)">
-                    Now ${money(item.currentBid)}{overMax ? " ▲" : ""}
+                  <div style={{ fontSize: 11, color: overMax ? "#c0392b" : won ? "#1D9E75" : "#aaa", marginTop: 1 }} title="Final hammer price on Proxibid">
+                    {item.sold ? `Sold $${money(item.price)}${overMax ? " ▲" : won ? " ✓" : ""}` : "Passed"}
                   </div>
                 </div>
                 <div className="col-roi" style={{ textAlign: "right", minWidth: 80 }}>
@@ -287,9 +294,16 @@ export default function App() {
                     )}
                     <div style={{ flex: "1 1 260px", fontSize: 12, color: "#555", lineHeight: 1.6 }}>
                       <div style={{ fontSize: 13, fontWeight: 500, color: "#1a1a1a", marginBottom: 4 }}>{item.title}</div>
-                      <div>Lot {item.lot} · Current high bid <strong>${money(item.currentBid)}</strong> (snapshot {AUCTION.snapshotLabel})</div>
+                      {item.sold ? (
+                        <div>Lot {item.lot} · Sold for <strong>${money(item.price)}</strong> hammer (≈ ${money(item.price * AUCTION_FEE_MULT)} all-in with premium + tax)</div>
+                      ) : (
+                        <div>Lot {item.lot} · <strong>Passed</strong> — no sale</div>
+                      )}
                       {overMax && (
-                        <div style={{ color: "#c0392b", marginTop: 4 }}>Bidding is already above your {roi.toFixed(1)}x max bid of ${bm.maxBid}. Let it go or lower your ROI target.</div>
+                        <div style={{ color: "#c0392b", marginTop: 4 }}>Hammered above your {formatRoi(roi)} max bid of ${bm.maxBid} — you'd have been outbid.</div>
+                      )}
+                      {won && (
+                        <div style={{ color: "#1D9E75", marginTop: 4 }}>Hammered at or below your {formatRoi(roi)} max bid of ${bm.maxBid} — winnable at this target.</div>
                       )}
                       <a href={item.url} target="_blank" rel="noreferrer" style={{ display: "inline-block", marginTop: 8, color: "#c07700", fontWeight: 500 }}>View lot on Proxibid →</a>
                     </div>
@@ -332,7 +346,7 @@ export default function App() {
                             <BidRow label="− eBay fees (13%)" value={`−$${money(bm.ebayFees)}`} />
                             <BidRow label="− Prep cost" value={`−$${money(bm.prep)}`} />
                             <BidRow label="= Net after costs" value={`$${money(bm.netAfterCosts)}`} />
-                            <BidRow label={`÷ ${roi.toFixed(1)}x ROI target`} value={`$${money(bm.afterRoi)}`} />
+                            <BidRow label={`÷ ${formatRoi(roi)} ROI target`} value={`$${money(bm.afterRoi)}`} />
                             <BidRow label="÷ Auction fees" value={`$${money(bm.afterAuctionFees)}`} />
                             <div style={{ borderTop: "1px solid #e5e5e5", margin: "6px 0" }} />
                             {bm.noBid ? (
@@ -366,7 +380,7 @@ export default function App() {
       </div>
 
       <p style={{ fontSize: 11, color: "#bbb", marginTop: 12, textAlign: "center" }}>
-        Lots and current bids captured from Proxibid {AUCTION.snapshotLabel}; bids move — confirm on Proxibid. Market values are analyst estimates from 2025–26 used-market pricing, not live eBay comps. Bid at your own discretion.
+        Final hammer prices from Proxibid ({AUCTION.snapshotLabel}); hammer excludes the 18% internet premium and 7.75% tax. Market values are analyst estimates from 2025–26 used-market pricing, not live eBay comps. Bid at your own discretion.
       </p>
     </div>
   );
